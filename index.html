@@ -119,12 +119,26 @@
   .btn.small { padding: 5px 10px; font-size: 0.78rem; }
   .meal-list { list-style: none; padding: 0; margin: 14px 0 0; }
   .meal-list li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     padding: 8px 0;
     border-top: 1px solid var(--line);
     font-size: 0.9rem;
+  }
+  .meal-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .meal-list details { margin-top: 6px; }
+  .meal-list summary {
+    cursor: pointer;
+    color: var(--accent-dark);
+    font-size: 0.8rem;
+  }
+  .meal-list details p {
+    white-space: pre-wrap;
+    font-size: 0.85rem;
+    color: var(--ink);
+    margin: 6px 0 0;
   }
   .tag {
     font-size: 0.72rem;
@@ -305,6 +319,10 @@
           <button class="btn" type="submit">Add meal</button>
         </div>
       </form>
+      <div style="margin-top:10px;">
+        <label>Prep steps (opt.)</label>
+        <textarea id="mealSteps" form="mealForm" rows="3" placeholder="e.g. 1. Soak dal 30 min. 2. Pressure cook with turmeric. 3. Temper with mustard seeds, curry leaves, chili." style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:0.88rem; font-family:inherit; resize:vertical;"></textarea>
+      </div>
       <div id="estimateHint" class="meal-meta" style="margin-top:8px;"></div>
     </div>
 
@@ -529,10 +547,12 @@ document.getElementById('mealForm').addEventListener('submit', async e => {
   const repeats = parseInt(document.getElementById('mealRepeats').value, 10);
   const caloriesRaw = document.getElementById('mealCalories').value;
   const calories = caloriesRaw ? parseInt(caloriesRaw, 10) : null;
+  const stepsRaw = document.getElementById('mealSteps').value.trim();
+  const steps = stepsRaw || null;
   if (!name) return;
 
   const { error } = await supa.from('meals').insert({
-    user_id: currentUser.id, name, type, repeats, calories
+    user_id: currentUser.id, name, type, repeats, calories, steps
   });
   if (error) { alert(error.message); return; }
 
@@ -556,12 +576,15 @@ function renderMeals() {
     data.meals.forEach(m => {
       const li = document.createElement('li');
       li.innerHTML = `
-        <span>
-          ${escapeHtml(m.name)}
-          <span class="tag ${m.type}">${mealTimeLabel(m.type)}</span>
-          <span class="meal-meta">${m.repeats}x/wk${m.calories ? ' &middot; ' + m.calories + ' cal' : ''}</span>
-        </span>
-        <button class="del-btn" data-id="${m.id}">Remove</button>
+        <div class="meal-row">
+          <span>
+            ${escapeHtml(m.name)}
+            <span class="tag ${m.type}">${mealTimeLabel(m.type)}</span>
+            <span class="meal-meta">${m.repeats}x/wk${m.calories ? ' &middot; ' + m.calories + ' cal' : ''}</span>
+          </span>
+          <button class="del-btn" data-id="${m.id}">Remove</button>
+        </div>
+        ${m.steps ? `<details><summary>Prep steps</summary><p>${escapeHtml(m.steps)}</p></details>` : ''}
       `;
       list.appendChild(li);
     });
