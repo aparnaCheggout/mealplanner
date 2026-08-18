@@ -210,6 +210,31 @@
     text-transform: none;
     letter-spacing: normal;
   }
+  .habit-grid-wrap { overflow-x: auto; }
+  .habit-grid { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .habit-grid th, .habit-grid td {
+    padding: 8px 10px;
+    text-align: center;
+    border-top: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .habit-grid thead th { border-top: none; color: var(--muted); font-weight: 500; font-size: 0.75rem; }
+  .habit-grid th:first-child, .habit-grid td:first-child {
+    text-align: left;
+    white-space: normal;
+    min-width: 140px;
+  }
+  .habit-grid th.today, .habit-grid td.today { background: #eef2ec; }
+  .habit-grid th.today { color: var(--accent-dark); }
+  .habit-del {
+    background: none;
+    border: none;
+    color: var(--danger);
+    font-size: 0.7rem;
+    margin-left: 6px;
+    cursor: pointer;
+  }
+  .habit-checkbox { width: auto; }
   .slot {
     margin-bottom: 8px;
   }
@@ -306,6 +331,7 @@
 <nav>
   <button data-tab="meals" class="active">Meals</button>
   <button data-tab="schedule">Weekly Schedule</button>
+  <button data-tab="habits">Daily Checklist</button>
   <button data-tab="weight">Weight Tracker</button>
 </nav>
 
@@ -400,6 +426,31 @@
     </div>
   </section>
 
+  <!-- HABITS TAB -->
+  <section id="habits">
+    <div class="card">
+      <h2>Add a habit</h2>
+      <form class="inline" id="habitForm" style="grid-template-columns: 1fr auto;">
+        <div>
+          <label>Habit</label>
+          <input type="text" id="habitName" placeholder="e.g. Water intake" required>
+        </div>
+        <div>
+          <button class="btn" type="submit">Add habit</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>This week</h2>
+      <div class="meal-meta" style="margin-bottom:10px;">Tap a box to check off a habit for that day.</div>
+      <div class="habit-grid-wrap">
+        <table class="habit-grid" id="habitGrid"></table>
+      </div>
+      <div id="habitsEmpty" class="empty" style="display:none;">No habits yet. Add one above — try "Water intake", "Exercise done", "Healthy eating", "No oily snacks".</div>
+    </div>
+  </section>
+
   <!-- WEIGHT TAB -->
   <section id="weight">
     <div class="card">
@@ -458,7 +509,7 @@ const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const supa = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 let currentUser = null;
-let data = { meals: [], schedule: null, overflow: null, weights: [], goalWeight: null };
+let data = { meals: [], schedule: null, overflow: null, weights: [], goalWeight: null, habits: [], habitLogs: [] };
 
 // ---------- Auth ----------
 const authScreen = document.getElementById('authScreen');
@@ -506,21 +557,35 @@ supa.auth.onAuthStateChange((event, session) => {
 });
 
 // ---------- Data loading ----------
+const DEFAULT_HABITS = ['Water intake', 'Exercise done', 'Healthy eating', 'No oily snacks'];
+
 async function loadAllData() {
-  const [mealsRes, planRes, weightsRes, settingsRes] = await Promise.all([
+  const [mealsRes, planRes, weightsRes, settingsRes, habitsRes, habitLogsRes] = await Promise.all([
     supa.from('meals').select('*').order('created_at'),
     supa.from('plans').select('*').eq('user_id', currentUser.id).maybeSingle(),
     supa.from('weights').select('*').order('date'),
     supa.from('settings').select('*').eq('user_id', currentUser.id).maybeSingle(),
+    supa.from('habits').select('*').order('created_at'),
+    supa.from('habit_logs').select('*'),
   ]);
   data.meals = mealsRes.data || [];
   data.schedule = planRes.data ? planRes.data.schedule : null;
   data.overflow = planRes.data ? planRes.data.overflow : null;
   data.weights = weightsRes.data || [];
   data.goalWeight = settingsRes.data ? settingsRes.data.goal_weight : null;
+  data.habits = habitsRes.data || [];
+  data.habitLogs = habitLogsRes.data || [];
+
+  if (data.habits.length === 0) {
+    const { data: seeded } = await supa.from('habits')
+      .insert(DEFAULT_HABITS.map(name => ({ user_id: currentUser.id, name })))
+      .select();
+    data.habits = seeded || [];
+  }
 
   renderMeals();
   renderSchedule();
+  renderHabits();
   renderWeight();
 }
 
@@ -1034,6 +1099,101 @@ function buildPrepChecklist() {
   list.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       document.getElementById(cb.id.replace('prep-check-', 'prep-item-')).classList.toggle('checked', cb.checked);
+    });
+  });
+}
+
+// ---------- Daily habit checklist ----------
+function pad2(n) { return String(n).padStart(2, '0'); }
+function formatDate(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+
+function getWeekDates() {
+  const today = new Date();
+  const mondayOffset = (today.getDay() + 6) % 7; // 0 = Monday
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - mondayOffset);
+  const todayStr = formatDate(today);
+
+  return DAYS.map((name, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateStr = formatDate(d);
+    return { name, date: dateStr, dayNum: d.getDate(), isToday: dateStr === todayStr };
+  });
+}
+
+document.getElementById('habitForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('habitName').value.trim();
+  if (!name) return;
+  const { error } = await supa.from('habits').insert({ user_id: currentUser.id, name });
+  if (error) { alert(error.message); return; }
+  document.getElementById('habitForm').reset();
+  const { data: rows } = await supa.from('habits').select('*').order('created_at');
+  data.habits = rows || [];
+  renderHabits();
+});
+
+function isHabitDone(habitId, date) {
+  return data.habitLogs.some(l => l.habit_id === habitId && l.date === date && l.done);
+}
+
+function renderHabits() {
+  const grid = document.getElementById('habitGrid');
+  const empty = document.getElementById('habitsEmpty');
+
+  if (data.habits.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const week = getWeekDates();
+
+  const thead = `<thead><tr>
+    <th></th>
+    ${week.map(w => `<th class="${w.isToday ? 'today' : ''}">${w.name}<br>${w.dayNum}</th>`).join('')}
+  </tr></thead>`;
+
+  const rows = data.habits.map(h => `
+    <tr>
+      <td>${escapeHtml(h.name)}<button type="button" class="habit-del" data-id="${h.id}">Remove</button></td>
+      ${week.map(w => `
+        <td class="${w.isToday ? 'today' : ''}">
+          <input type="checkbox" class="habit-checkbox" data-habit="${h.id}" data-date="${w.date}" ${isHabitDone(h.id, w.date) ? 'checked' : ''}>
+        </td>
+      `).join('')}
+    </tr>
+  `).join('');
+
+  grid.innerHTML = thead + `<tbody>${rows}</tbody>`;
+
+  grid.querySelectorAll('.habit-checkbox').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const habitId = cb.dataset.habit;
+      const date = cb.dataset.date;
+      if (cb.checked) {
+        const { error } = await supa.from('habit_logs').upsert(
+          { user_id: currentUser.id, habit_id: habitId, date, done: true },
+          { onConflict: 'user_id,habit_id,date' }
+        );
+        if (error) { alert(error.message); cb.checked = false; return; }
+        data.habitLogs = data.habitLogs.filter(l => !(l.habit_id === habitId && l.date === date));
+        data.habitLogs.push({ habit_id: habitId, date, done: true });
+      } else {
+        await supa.from('habit_logs').delete().eq('habit_id', habitId).eq('date', date);
+        data.habitLogs = data.habitLogs.filter(l => !(l.habit_id === habitId && l.date === date));
+      }
+    });
+  });
+
+  grid.querySelectorAll('.habit-del').forEach(b => {
+    b.addEventListener('click', async () => {
+      await supa.from('habits').delete().eq('id', b.dataset.id);
+      data.habits = data.habits.filter(h => h.id !== b.dataset.id);
+      data.habitLogs = data.habitLogs.filter(l => l.habit_id !== b.dataset.id);
+      renderHabits();
     });
   });
 }
