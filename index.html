@@ -320,8 +320,11 @@
         </div>
       </form>
       <div style="margin-top:10px;">
-        <label>Prep steps (opt.)</label>
-        <textarea id="mealSteps" form="mealForm" rows="3" placeholder="e.g. 1. Soak dal 30 min. 2. Pressure cook with turmeric. 3. Temper with mustard seeds, curry leaves, chili." style="width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:0.88rem; font-family:inherit; resize:vertical;"></textarea>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <label style="margin-bottom:0;">Prep steps (opt.)</label>
+          <button type="button" class="btn secondary small" id="suggestStepsBtn" title="Suggest steps from meal name">Suggest steps</button>
+        </div>
+        <textarea id="mealSteps" form="mealForm" rows="3" placeholder="e.g. 1. Soak dal 30 min. 2. Pressure cook with turmeric. 3. Temper with mustard seeds, curry leaves, chili." style="width:100%; margin-top:4px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:0.88rem; font-family:inherit; resize:vertical;"></textarea>
       </div>
       <div id="estimateHint" class="meal-meta" style="margin-top:8px;"></div>
     </div>
@@ -482,37 +485,80 @@ document.querySelectorAll('nav button').forEach(btn => {
   });
 });
 
-// ---------- Calorie estimation ----------
-// Approximate calories per typical single serving. Not medically precise —
-// meant as a rough starting point you can override manually.
-const FOOD_CALORIES = [
-  { name: 'masala dosa', cal: 250 }, { name: 'plain dosa', cal: 170 }, { name: 'dosa', cal: 170 },
-  { name: 'idli', cal: 120 }, { name: 'sambar', cal: 100 }, { name: 'upma', cal: 200 },
-  { name: 'poha', cal: 180 }, { name: 'aloo paratha', cal: 250 }, { name: 'paratha', cal: 150 },
-  { name: 'chapati', cal: 70 }, { name: 'roti', cal: 70 }, { name: 'naan', cal: 260 },
-  { name: 'curd rice', cal: 250 }, { name: 'sambar rice', cal: 300 }, { name: 'fried rice', cal: 350 },
-  { name: 'veg pulao', cal: 300 }, { name: 'vegetable pulao', cal: 300 }, { name: 'rice', cal: 200 },
-  { name: 'dal khichdi', cal: 250 }, { name: 'khichdi', cal: 220 }, { name: 'dal tadka', cal: 150 },
-  { name: 'dal', cal: 150 }, { name: 'rajma', cal: 180 }, { name: 'chana masala', cal: 220 },
-  { name: 'chole', cal: 220 }, { name: 'paneer butter masala', cal: 320 }, { name: 'palak paneer', cal: 250 },
-  { name: 'paneer', cal: 260 }, { name: 'chicken biryani', cal: 400 }, { name: 'veg biryani', cal: 350 },
-  { name: 'biryani', cal: 380 }, { name: 'chicken curry', cal: 300 }, { name: 'egg curry', cal: 220 },
-  { name: 'fish curry', cal: 250 }, { name: 'fish fry', cal: 200 }, { name: 'curry', cal: 250 },
-  { name: 'mixed vegetable', cal: 150 }, { name: 'sabzi', cal: 150 }, { name: 'grilled chicken', cal: 220 },
-  { name: 'chicken salad', cal: 280 }, { name: 'salad', cal: 100 }, { name: 'fruit salad', cal: 120 },
-  { name: 'boiled egg', cal: 78 }, { name: 'omelette', cal: 180 }, { name: 'egg', cal: 90 },
-  { name: 'curd', cal: 100 }, { name: 'yogurt', cal: 100 }, { name: 'milk', cal: 150 },
-  { name: 'tea', cal: 40 }, { name: 'coffee', cal: 50 }, { name: 'toast', cal: 150 },
-  { name: 'bread', cal: 130 }, { name: 'chicken sandwich', cal: 320 }, { name: 'sandwich', cal: 250 },
-  { name: 'chicken soup', cal: 150 }, { name: 'soup', cal: 100 }, { name: 'pasta', cal: 350 },
-  { name: 'noodles', cal: 300 }, { name: 'pizza', cal: 500 }, { name: 'burger', cal: 450 },
-  { name: 'banana', cal: 90 }, { name: 'apple', cal: 95 }, { name: 'chicken stir fry', cal: 320 },
-  { name: 'stir fry', cal: 280 },
+// ---------- Calorie & prep-step estimation ----------
+// Approximate calories per typical single serving, plus a generic prep outline.
+// Not medically precise or a full recipe — a rough starting point to edit from.
+const FOOD_DB = [
+  { name: 'masala dosa', cal: 250, steps: '1. Make dosa batter (rice + urad dal, fermented).\n2. Heat tawa, spread batter thin.\n3. Drizzle oil, cook till crisp and golden.\n4. Fill with spiced potato masala, fold, serve with chutney & sambar.' },
+  { name: 'plain dosa', cal: 170, steps: '1. Spread fermented dosa batter thin on hot tawa.\n2. Drizzle oil, cook till golden and crisp.\n3. Fold and serve with chutney & sambar.' },
+  { name: 'dosa', cal: 170, steps: '1. Spread fermented dosa batter thin on hot tawa.\n2. Drizzle oil, cook till golden and crisp.\n3. Serve with chutney & sambar.' },
+  { name: 'idli', cal: 120, steps: '1. Steam fermented idli batter in idli moulds for 10-12 min.\n2. Rest 2 min, then demould.\n3. Serve hot with sambar and chutney.' },
+  { name: 'sambar', cal: 100, steps: '1. Pressure cook toor dal with turmeric.\n2. Cook chopped vegetables with tamarind water and sambar powder.\n3. Mix in cooked dal, simmer.\n4. Temper mustard seeds, curry leaves, dried chili in oil, pour over.' },
+  { name: 'upma', cal: 200, steps: '1. Dry roast semolina (rava) till aromatic, set aside.\n2. Temper mustard seeds, urad dal, curry leaves, onion, green chili in oil.\n3. Add water, bring to boil.\n4. Stir in rava, cook till thick.' },
+  { name: 'poha', cal: 180, steps: '1. Rinse flattened rice (poha) briefly, drain.\n2. Temper mustard seeds, curry leaves, onion, green chili, peanuts in oil.\n3. Add turmeric, poha, salt; mix gently.\n4. Cook 2-3 min covered, garnish with coriander & lemon.' },
+  { name: 'aloo paratha', cal: 250, steps: '1. Mix mashed boiled potato with spices for stuffing.\n2. Roll dough disc, place stuffing, seal and roll flat.\n3. Cook on tawa with ghee/oil till golden both sides.' },
+  { name: 'paratha', cal: 150, steps: '1. Roll out dough into a flat disc.\n2. Cook on hot tawa, brushing with ghee/oil, flipping till golden spots form both sides.' },
+  { name: 'chapati', cal: 70, steps: '1. Roll dough into a thin round.\n2. Cook on hot tawa till bubbles form, flip.\n3. Puff over open flame or press with cloth, then remove.' },
+  { name: 'roti', cal: 70, steps: '1. Roll dough into a thin round.\n2. Cook on hot tawa till bubbles form, flip and puff, then remove.' },
+  { name: 'naan', cal: 260, steps: '1. Prove dough with yogurt/yeast till soft.\n2. Roll into oval, stretch.\n3. Cook on very hot tawa or in oven till charred spots form, brush with butter.' },
+  { name: 'curd rice', cal: 250, steps: '1. Mix cooked rice with curd/yogurt and a splash of milk.\n2. Temper mustard seeds, curry leaves, green chili, ginger in oil.\n3. Mix into rice, season with salt.' },
+  { name: 'sambar rice', cal: 300, steps: '1. Cook rice separately.\n2. Prepare sambar (dal + vegetables + tamarind + spices).\n3. Mix rice and sambar together, serve hot.' },
+  { name: 'fried rice', cal: 350, steps: '1. Use day-old cooked rice.\n2. Stir-fry chopped vegetables/protein in hot oil.\n3. Add rice, soy sauce, pepper; toss on high heat till combined.' },
+  { name: 'veg pulao', cal: 300, steps: '1. Sauté whole spices and chopped vegetables in ghee/oil.\n2. Add rinsed rice, water, salt.\n3. Cook covered till rice is done and fluffy.' },
+  { name: 'vegetable pulao', cal: 300, steps: '1. Sauté whole spices and chopped vegetables in ghee/oil.\n2. Add rinsed rice, water, salt.\n3. Cook covered till rice is done and fluffy.' },
+  { name: 'rice', cal: 200, steps: '1. Rinse rice till water runs clear.\n2. Cook with water (1:2 ratio) till soft, or pressure cook 2-3 whistles.' },
+  { name: 'dal khichdi', cal: 250, steps: '1. Rinse rice and dal together.\n2. Pressure cook with turmeric, salt, and water till soft and mushy.\n3. Temper with ghee, cumin, and hing; pour over.' },
+  { name: 'khichdi', cal: 220, steps: '1. Rinse rice and dal together.\n2. Pressure cook with turmeric, salt, and water till soft and mushy.\n3. Temper with ghee and cumin, pour over.' },
+  { name: 'dal tadka', cal: 150, steps: '1. Pressure cook dal with turmeric till soft.\n2. Temper cumin, garlic, dried chili in ghee.\n3. Pour tempering over dal, simmer briefly, garnish with coriander.' },
+  { name: 'dal', cal: 150, steps: '1. Pressure cook dal with turmeric and salt till soft.\n2. Temper cumin/mustard seeds, garlic in ghee.\n3. Pour over dal, simmer briefly.' },
+  { name: 'rajma', cal: 180, steps: '1. Soak and pressure cook kidney beans till soft.\n2. Sauté onion-tomato-ginger-garlic masala with spices.\n3. Add cooked beans, simmer till thick. Serve with rice.' },
+  { name: 'chana masala', cal: 220, steps: '1. Soak and cook chickpeas till soft.\n2. Sauté onion-tomato masala with chana masala spice mix.\n3. Add chickpeas, simmer till thick and flavorful.' },
+  { name: 'chole', cal: 220, steps: '1. Soak and cook chickpeas till soft.\n2. Sauté onion-tomato masala with chole spice mix.\n3. Add chickpeas, simmer till thick.' },
+  { name: 'paneer butter masala', cal: 320, steps: '1. Sauté onion-tomato-cashew paste till oil separates.\n2. Add butter, cream, spices.\n3. Add paneer cubes, simmer briefly, garnish with coriander.' },
+  { name: 'palak paneer', cal: 250, steps: '1. Blanch spinach, blend to a smooth purée.\n2. Sauté onion-tomato-garlic masala.\n3. Add spinach purée and paneer cubes, simmer briefly.' },
+  { name: 'paneer', cal: 260, steps: '1. Cube paneer, lightly pan-fry if desired.\n2. Cook in your choice of gravy/masala until heated through.' },
+  { name: 'chicken biryani', cal: 400, steps: '1. Marinate chicken in yogurt & spices.\n2. Par-cook rice with whole spices.\n3. Layer chicken and rice, cook on dum (sealed pot, low heat) till done.' },
+  { name: 'veg biryani', cal: 350, steps: '1. Sauté mixed vegetables with biryani masala.\n2. Par-cook rice with whole spices.\n3. Layer vegetables and rice, cook on dum till fragrant.' },
+  { name: 'biryani', cal: 380, steps: '1. Marinate/prepare protein or vegetables with spices.\n2. Par-cook rice with whole spices.\n3. Layer and cook on low heat (dum) till fully cooked and fragrant.' },
+  { name: 'chicken curry', cal: 300, steps: '1. Sauté onion-tomato-ginger-garlic masala with spices.\n2. Add chicken pieces, sear briefly.\n3. Add water, simmer covered till chicken is cooked through.' },
+  { name: 'egg curry', cal: 220, steps: '1. Boil and peel eggs.\n2. Prepare onion-tomato masala with spices.\n3. Add eggs to the gravy, simmer a few minutes to absorb flavor.' },
+  { name: 'fish curry', cal: 250, steps: '1. Marinate fish with turmeric & salt.\n2. Prepare tamarind/coconut-based masala.\n3. Gently simmer fish in the gravy till just cooked through.' },
+  { name: 'fish fry', cal: 200, steps: '1. Marinate fish with spices, turmeric, lemon.\n2. Coat lightly in flour/semolina if desired.\n3. Shallow fry till crisp and golden on both sides.' },
+  { name: 'curry', cal: 250, steps: '1. Sauté onion-tomato-ginger-garlic base with spices.\n2. Add your main ingredient (vegetable/protein).\n3. Add water, simmer covered till cooked and flavors meld.' },
+  { name: 'mixed vegetable', cal: 150, steps: '1. Chop vegetables uniformly.\n2. Temper cumin/mustard seeds in oil, add vegetables.\n3. Add spices, cover and cook till tender, stirring occasionally.' },
+  { name: 'sabzi', cal: 150, steps: '1. Chop vegetables uniformly.\n2. Temper cumin/mustard seeds in oil, add vegetables.\n3. Add spices, cover and cook till tender.' },
+  { name: 'grilled chicken', cal: 220, steps: '1. Marinate chicken with spices, yogurt or lemon, oil.\n2. Grill or pan-sear on medium-high heat till cooked through and lightly charred on both sides.' },
+  { name: 'chicken salad', cal: 280, steps: '1. Cook/shred chicken (grilled or boiled).\n2. Toss with chopped salad vegetables.\n3. Dress with lemon/olive oil/yogurt and seasoning.' },
+  { name: 'salad', cal: 100, steps: '1. Chop vegetables of choice.\n2. Toss together.\n3. Dress with lemon juice, oil, salt & pepper.' },
+  { name: 'fruit salad', cal: 120, steps: '1. Chop assorted fruits into bite-size pieces.\n2. Toss together, optionally with a squeeze of lemon or honey.' },
+  { name: 'boiled egg', cal: 78, steps: '1. Place eggs in water, bring to boil.\n2. Simmer 8-10 min for hard-boiled.\n3. Cool in cold water, peel.' },
+  { name: 'omelette', cal: 180, steps: '1. Whisk eggs with salt, pepper, chopped onion/chili if desired.\n2. Pour onto hot buttered pan.\n3. Cook till set, fold and serve.' },
+  { name: 'egg', cal: 90, steps: '1. Cook eggs to preference (boiled, fried, or scrambled) with salt and pepper.' },
+  { name: 'curd', cal: 100, steps: '1. Serve chilled curd as is, or whisk with a pinch of salt/sugar.' },
+  { name: 'yogurt', cal: 100, steps: '1. Serve chilled yogurt as is, or whisk with a pinch of salt/sugar.' },
+  { name: 'milk', cal: 150, steps: '1. Heat or serve milk as needed, plain or with add-ins.' },
+  { name: 'tea', cal: 40, steps: '1. Boil water with tea leaves, milk, and sugar to taste.\n2. Simmer briefly, strain, serve hot.' },
+  { name: 'coffee', cal: 50, steps: '1. Brew coffee to preference.\n2. Add milk and sugar as desired.' },
+  { name: 'toast', cal: 150, steps: '1. Toast bread till golden.\n2. Spread butter or topping of choice.' },
+  { name: 'bread', cal: 130, steps: '1. Serve bread as is or toasted, with toppings of choice.' },
+  { name: 'chicken sandwich', cal: 320, steps: '1. Cook and slice chicken filling.\n2. Assemble with condiments between bread slices.\n3. Toast or grill if desired.' },
+  { name: 'sandwich', cal: 250, steps: '1. Assemble filling of choice with condiments between bread slices.\n2. Toast or grill if desired.' },
+  { name: 'chicken soup', cal: 150, steps: '1. Sauté aromatics (onion, garlic, ginger).\n2. Add stock/water and shredded chicken.\n3. Simmer until heated through, season to taste.' },
+  { name: 'soup', cal: 100, steps: '1. Sauté aromatics (onion, garlic, ginger).\n2. Add stock/water and main ingredients.\n3. Simmer until cooked through, season to taste.' },
+  { name: 'pasta', cal: 350, steps: '1. Boil pasta in salted water till al dente.\n2. Prepare sauce separately.\n3. Toss pasta with sauce, serve hot.' },
+  { name: 'noodles', cal: 300, steps: '1. Boil noodles till just done, drain.\n2. Stir-fry with vegetables/protein and sauces on high heat.\n3. Toss noodles in, combine well.' },
+  { name: 'pizza', cal: 500, steps: '1. Spread sauce on base.\n2. Add cheese and toppings.\n3. Bake at high heat till crust is golden and cheese melts.' },
+  { name: 'burger', cal: 450, steps: '1. Cook patty to preference.\n2. Toast buns.\n3. Assemble with condiments, lettuce, tomato, cheese.' },
+  { name: 'banana', cal: 90, steps: '1. Peel and eat, or slice as a topping.' },
+  { name: 'apple', cal: 95, steps: '1. Wash and eat, or slice as needed.' },
+  { name: 'chicken stir fry', cal: 320, steps: '1. Slice chicken and vegetables thin.\n2. Stir-fry chicken in hot oil till cooked.\n3. Add vegetables and sauce, toss on high heat till just tender.' },
+  { name: 'stir fry', cal: 280, steps: '1. Slice vegetables/protein thin.\n2. Stir-fry in hot oil in batches.\n3. Combine, add sauce, toss on high heat till just tender.' },
 ];
+const FOOD_CALORIES = FOOD_DB;
 
 function estimateCalories(name) {
   let remaining = ' ' + name.toLowerCase() + ' ';
-  const sorted = [...FOOD_CALORIES].sort((a, b) => b.name.length - a.name.length);
+  const sorted = [...FOOD_DB].sort((a, b) => b.name.length - a.name.length);
   const matched = [];
   let total = 0;
   sorted.forEach(item => {
@@ -537,6 +583,38 @@ document.getElementById('estimateBtn').addEventListener('click', () => {
   }
   document.getElementById('mealCalories').value = result.total;
   hint.textContent = `Estimated ${result.total} cal from: ${result.matched.join(', ')}. Rough approximation — adjust if needed.`;
+});
+
+function titleCase(s) { return s.replace(/\b\w/g, c => c.toUpperCase()); }
+
+function suggestSteps(name) {
+  let remaining = ' ' + name.toLowerCase() + ' ';
+  const sorted = [...FOOD_DB].sort((a, b) => b.name.length - a.name.length);
+  const matched = [];
+  sorted.forEach(item => {
+    const needle = ' ' + item.name + ' ';
+    if (remaining.includes(needle)) {
+      matched.push(item);
+      remaining = remaining.split(needle).join(' ');
+    }
+  });
+  if (!matched.length) return null;
+  if (matched.length === 1) return matched[0].steps;
+  return matched.map(m => `${titleCase(m.name)}:\n${m.steps}`).join('\n\n');
+}
+
+document.getElementById('suggestStepsBtn').addEventListener('click', () => {
+  const name = document.getElementById('mealName').value.trim();
+  const stepsField = document.getElementById('mealSteps');
+  const hint = document.getElementById('estimateHint');
+  if (!name) { hint.textContent = 'Type a meal name first.'; return; }
+  const suggestion = suggestSteps(name);
+  if (!suggestion) {
+    hint.textContent = `No prep steps found for "${name}" — enter your own.`;
+    return;
+  }
+  stepsField.value = suggestion;
+  hint.textContent = 'Suggested generic steps added below — edit to match how you actually make it.';
 });
 
 // ---------- Meals ----------
