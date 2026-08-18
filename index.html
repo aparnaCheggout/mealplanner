@@ -15,8 +15,9 @@
     --line: #e2e0d8;
     --accent: #5b7a5a;
     --accent-dark: #3f5a3e;
-    --family: #cf9a5c;
-    --personal: #5b7a5a;
+    --breakfast: #cf9a5c;
+    --lunch: #5b7a5a;
+    --dinner: #7a5a8a;
     --danger: #b5533c;
     --radius: 10px;
   }
@@ -132,8 +133,9 @@
     color: #fff;
     margin-left: 8px;
   }
-  .tag.family { background: var(--family); }
-  .tag.personal { background: var(--personal); }
+  .tag.breakfast { background: var(--breakfast); }
+  .tag.lunch { background: var(--lunch); }
+  .tag.dinner { background: var(--dinner); }
   .meal-meta { color: var(--muted); font-size: 0.82rem; margin-left: 6px; }
   .del-btn {
     background: none;
@@ -254,7 +256,7 @@
 <header>
   <div>
     <h1>Meal Planner & Weight Tracker</h1>
-    <div class="sub">Plan family meals + your own prep meals for the week, then track your weight.</div>
+    <div class="sub">Plan your breakfast, lunch & dinner for the week, then track your weight.</div>
   </div>
 </header>
 
@@ -281,10 +283,11 @@
           <input type="text" id="mealName" placeholder="e.g. Chicken stir fry" required>
         </div>
         <div>
-          <label>Type</label>
+          <label>Meal time</label>
           <select id="mealType">
-            <option value="family">Family dinner</option>
-            <option value="personal">Your prep meal</option>
+            <option value="breakfast">Breakfast</option>
+            <option value="lunch">Lunch</option>
+            <option value="dinner">Dinner</option>
           </select>
         </div>
         <div>
@@ -493,7 +496,7 @@ function renderMeals() {
       li.innerHTML = `
         <span>
           ${escapeHtml(m.name)}
-          <span class="tag ${m.type}">${m.type === 'family' ? 'Family' : 'Personal'}</span>
+          <span class="tag ${m.type}">${mealTimeLabel(m.type)}</span>
           <span class="meal-meta">${m.repeats}x/wk${m.calories ? ' &middot; ' + m.calories + ' cal' : ''}</span>
         </span>
         <button class="del-btn" data-id="${m.id}">Remove</button>
@@ -549,17 +552,21 @@ function buildPool(meals) {
   return { pool, overflow };
 }
 
+const MEAL_TIMES = ['breakfast', 'lunch', 'dinner'];
+
 async function generateSchedule() {
-  const familyMeals = data.meals.filter(m => m.type === 'family');
-  const personalMeals = data.meals.filter(m => m.type === 'personal');
-  const famResult = buildPool(familyMeals);
-  const persResult = buildPool(personalMeals);
+  const results = {};
+  MEAL_TIMES.forEach(time => {
+    results[time] = buildPool(data.meals.filter(m => m.type === time));
+  });
 
   const schedule = {};
   DAYS.forEach((day, i) => {
-    schedule[day] = { family: famResult.pool[i], personal: persResult.pool[i] };
+    schedule[day] = {};
+    MEAL_TIMES.forEach(time => { schedule[day][time] = results[time].pool[i]; });
   });
-  const overflow = { family: famResult.overflow, personal: persResult.overflow };
+  const overflow = {};
+  MEAL_TIMES.forEach(time => { overflow[time] = results[time].overflow; });
 
   data.schedule = schedule;
   data.overflow = overflow;
@@ -570,6 +577,7 @@ async function generateSchedule() {
 }
 
 function mealById(id) { return data.meals.find(m => m.id === id); }
+function mealTimeLabel(type) { return type.charAt(0).toUpperCase() + type.slice(1); }
 
 function renderSchedule() {
   const grid = document.getElementById('scheduleGrid');
@@ -584,50 +592,43 @@ function renderSchedule() {
     return;
   }
 
-  const ov = data.overflow || { family: 0, personal: 0 };
-  if (ov.family > 0 || ov.personal > 0) {
-    const parts = [];
-    if (ov.family > 0) parts.push(`${ov.family} family meal slot(s)`);
-    if (ov.personal > 0) parts.push(`${ov.personal} personal meal slot(s)`);
-    warnings.innerHTML = `<div class="warn">Your weekly repeats add up to more than 7 days for ${parts.join(' and ')} &mdash; some were left out. Lower the "times/week" on a few meals to fit them all in.</div>`;
+  const ov = data.overflow || {};
+  const overflowParts = MEAL_TIMES.filter(t => ov[t] > 0).map(t => `${ov[t]} ${t} slot(s)`);
+  if (overflowParts.length > 0) {
+    warnings.innerHTML = `<div class="warn">Your weekly repeats add up to more than 7 days for ${overflowParts.join(' and ')} &mdash; some were left out. Lower the "times/week" on a few meals to fit them all in.</div>`;
   }
 
-  const familyOptions = data.meals.filter(m => m.type === 'family');
-  const personalOptions = data.meals.filter(m => m.type === 'personal');
+  const optionsByTime = {};
+  MEAL_TIMES.forEach(time => { optionsByTime[time] = data.meals.filter(m => m.type === time); });
 
-  let totalCalories = 0, loggedDays = 0;
+  let totalCalories = 0, loggedMeals = 0;
 
   DAYS.forEach(day => {
     const col = document.createElement('div');
     col.className = 'day-col';
-    const entry = data.schedule[day] || { family: null, personal: null };
-    const personalMeal = mealById(entry.personal);
-    if (personalMeal && personalMeal.calories) { totalCalories += personalMeal.calories; loggedDays++; }
+    const entry = data.schedule[day] || {};
 
-    col.innerHTML = `
-      <h3>${day}</h3>
+    const slotsHtml = MEAL_TIMES.map(time => {
+      const meal = mealById(entry[time]);
+      if (meal && meal.calories) { totalCalories += meal.calories; loggedMeals++; }
+      return `
       <div class="slot">
-        <div class="slot-label">Family</div>
-        <select data-day="${day}" data-slot="family">
+        <div class="slot-label">${mealTimeLabel(time)}</div>
+        <select data-day="${day}" data-slot="${time}">
           <option value="">&mdash;</option>
-          ${familyOptions.map(m => `<option value="${m.id}" ${entry.family === m.id ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
+          ${optionsByTime[time].map(m => `<option value="${m.id}" ${entry[time] === m.id ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
         </select>
-      </div>
-      <div class="slot">
-        <div class="slot-label">You</div>
-        <select data-day="${day}" data-slot="personal">
-          <option value="">&mdash;</option>
-          ${personalOptions.map(m => `<option value="${m.id}" ${entry.personal === m.id ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
-        </select>
-      </div>
-    `;
+      </div>`;
+    }).join('');
+
+    col.innerHTML = `<h3>${day}</h3>${slotsHtml}`;
     grid.appendChild(col);
   });
 
   grid.querySelectorAll('select').forEach(sel => {
     sel.addEventListener('change', async () => {
       const { day, slot } = sel.dataset;
-      if (!data.schedule[day]) data.schedule[day] = { family: null, personal: null };
+      if (!data.schedule[day]) data.schedule[day] = {};
       data.schedule[day][slot] = sel.value || null;
       await supa.from('plans').upsert({
         user_id: currentUser.id, schedule: data.schedule, overflow: data.overflow || {}, updated_at: new Date().toISOString()
@@ -638,7 +639,7 @@ function renderSchedule() {
 
   stats.innerHTML = `
     <div class="stat"><div class="num">${data.meals.length}</div><div class="label">Meals in rotation</div></div>
-    <div class="stat"><div class="num">${totalCalories || '—'}</div><div class="label">Weekly cal (your meals)${loggedDays ? '' : ', add calories to meals'}</div></div>
+    <div class="stat"><div class="num">${totalCalories || '—'}</div><div class="label">Weekly cal${loggedMeals ? '' : ', add calories to meals'}</div></div>
   `;
 }
 
