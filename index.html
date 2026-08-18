@@ -299,7 +299,8 @@
       <form class="inline" id="mealForm">
         <div>
           <label>Meal name</label>
-          <input type="text" id="mealName" placeholder="e.g. Chicken stir fry" required>
+          <input type="text" id="mealName" list="dishSuggestions" placeholder="e.g. Chicken stir fry" required autocomplete="off">
+          <datalist id="dishSuggestions"></datalist>
         </div>
         <div>
           <label>Meal time</label>
@@ -988,6 +989,12 @@ function escapeHtml(s) {
 
 // ---------- init ----------
 document.getElementById('weightDate').valueAsDate = new Date();
+
+const dishList = document.getElementById('dishSuggestions');
+dishList.innerHTML = [...new Set(FOOD_DB.map(f => f.name))]
+  .sort()
+  .map(n => `<option value="${escapeHtml(titleCase(n))}"></option>`)
+  .join('');
 </script>
 
 </body>
