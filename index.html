@@ -235,6 +235,15 @@
     cursor: pointer;
   }
   .habit-checkbox { width: auto; }
+  .today-summary { display: flex; flex-wrap: wrap; gap: 24px; }
+  .today-summary .col { flex: 1; min-width: 220px; }
+  .today-summary h3 { margin: 0 0 8px; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .today-meal-line { font-size: 0.9rem; margin-bottom: 5px; }
+  .today-meal-line .slot-name { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; margin-right: 4px; }
+  .today-habit-item { display: flex; align-items: center; gap: 7px; font-size: 0.88rem; margin-bottom: 6px; }
+  .today-habit-item input { width: auto; }
+  .today-habit-item.done label { text-decoration: line-through; color: var(--muted); }
+  .today-nudge { font-size: 0.85rem; color: var(--accent-dark); margin-top: 6px; }
   .slot {
     margin-bottom: 8px;
   }
@@ -326,6 +335,10 @@
 <div class="account" style="max-width:900px; margin:0 auto; padding:0 20px;">
   <span id="userEmailLabel"></span>
   <button class="btn secondary small" id="signOutBtn">Sign out</button>
+</div>
+
+<div style="max-width:900px; margin:0 auto; padding:14px 20px 0;">
+  <div class="card" id="todayCard"></div>
 </div>
 
 <nav>
@@ -587,6 +600,7 @@ async function loadAllData() {
   renderSchedule();
   renderHabits();
   renderWeight();
+  renderTodayCard();
 }
 
 // ---------- Tabs ----------
@@ -865,6 +879,7 @@ async function generateSchedule() {
   await supa.from('plans').upsert({
     user_id: currentUser.id, schedule, overflow, updated_at: new Date().toISOString()
   });
+  renderTodayCard();
 }
 
 // ---------- Plan import (paste a Day 1 / Breakfast / Lunch / Dinner / Snacks style plan) ----------
@@ -981,6 +996,7 @@ async function runImport() {
   renderMeals();
   document.querySelector('nav button[data-tab="schedule"]').click();
   renderSchedule();
+  renderTodayCard();
 }
 
 function mealById(id) { return data.meals.find(m => m.id === id); }
@@ -1044,6 +1060,7 @@ function renderSchedule() {
         user_id: currentUser.id, schedule: data.schedule, overflow: data.overflow || {}, updated_at: new Date().toISOString()
       });
       renderSchedule();
+      renderTodayCard();
     });
   });
 
@@ -1132,10 +1149,29 @@ document.getElementById('habitForm').addEventListener('submit', async e => {
   const { data: rows } = await supa.from('habits').select('*').order('created_at');
   data.habits = rows || [];
   renderHabits();
+  renderTodayCard();
 });
 
 function isHabitDone(habitId, date) {
   return data.habitLogs.some(l => l.habit_id === habitId && l.date === date && l.done);
+}
+
+// Shared by the Daily Checklist grid and the Today card so both stay in sync.
+// Returns true on success, false on failure (caller should revert its checkbox).
+async function toggleHabitLog(habitId, date, checked) {
+  if (checked) {
+    const { error } = await supa.from('habit_logs').upsert(
+      { user_id: currentUser.id, habit_id: habitId, date, done: true },
+      { onConflict: 'user_id,habit_id,date' }
+    );
+    if (error) { alert(error.message); return false; }
+    data.habitLogs = data.habitLogs.filter(l => !(l.habit_id === habitId && l.date === date));
+    data.habitLogs.push({ habit_id: habitId, date, done: true });
+  } else {
+    await supa.from('habit_logs').delete().eq('habit_id', habitId).eq('date', date);
+    data.habitLogs = data.habitLogs.filter(l => !(l.habit_id === habitId && l.date === date));
+  }
+  return true;
 }
 
 function renderHabits() {
@@ -1171,20 +1207,9 @@ function renderHabits() {
 
   grid.querySelectorAll('.habit-checkbox').forEach(cb => {
     cb.addEventListener('change', async () => {
-      const habitId = cb.dataset.habit;
-      const date = cb.dataset.date;
-      if (cb.checked) {
-        const { error } = await supa.from('habit_logs').upsert(
-          { user_id: currentUser.id, habit_id: habitId, date, done: true },
-          { onConflict: 'user_id,habit_id,date' }
-        );
-        if (error) { alert(error.message); cb.checked = false; return; }
-        data.habitLogs = data.habitLogs.filter(l => !(l.habit_id === habitId && l.date === date));
-        data.habitLogs.push({ habit_id: habitId, date, done: true });
-      } else {
-        await supa.from('habit_logs').delete().eq('habit_id', habitId).eq('date', date);
-        data.habitLogs = data.habitLogs.filter(l => !(l.habit_id === habitId && l.date === date));
-      }
+      const ok = await toggleHabitLog(cb.dataset.habit, cb.dataset.date, cb.checked);
+      if (!ok) { cb.checked = !cb.checked; return; }
+      renderTodayCard();
     });
   });
 
@@ -1193,6 +1218,71 @@ function renderHabits() {
       await supa.from('habits').delete().eq('id', b.dataset.id);
       data.habits = data.habits.filter(h => h.id !== b.dataset.id);
       data.habitLogs = data.habitLogs.filter(l => l.habit_id !== b.dataset.id);
+      renderHabits();
+      renderTodayCard();
+    });
+  });
+}
+
+function renderTodayCard() {
+  const card = document.getElementById('todayCard');
+  if (!card) return;
+
+  const today = new Date();
+  const todayName = DAYS[(today.getDay() + 6) % 7];
+  const todayStr = formatDate(today);
+  const dateLabel = today.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
+  let mealsHtml = '<div class="empty">No meals planned for today &mdash; check the Weekly Schedule tab.</div>';
+  if (data.schedule && data.schedule[todayName]) {
+    const entry = data.schedule[todayName];
+    const lines = MEAL_TIMES.map(time => {
+      const meal = mealById(entry[time]);
+      if (!meal) return '';
+      return `<div class="today-meal-line"><span class="slot-name">${mealTimeLabel(time)}</span>${escapeHtml(meal.name)}</div>`;
+    }).join('');
+    mealsHtml = lines || mealsHtml;
+  }
+
+  let habitsHtml = '<div class="empty">No habits set up yet.</div>';
+  let nudge = '';
+  if (data.habits.length > 0) {
+    const doneCount = data.habits.filter(h => isHabitDone(h.id, todayStr)).length;
+    habitsHtml = data.habits.map(h => {
+      const done = isHabitDone(h.id, todayStr);
+      return `
+        <div class="today-habit-item ${done ? 'done' : ''}">
+          <input type="checkbox" id="today-habit-${h.id}" ${done ? 'checked' : ''} data-habit="${h.id}">
+          <label for="today-habit-${h.id}">${escapeHtml(h.name)}</label>
+        </div>`;
+    }).join('');
+    if (doneCount < data.habits.length) {
+      nudge = `<div class="today-nudge">${doneCount}/${data.habits.length} checked off today &mdash; tap to update.</div>`;
+    } else {
+      nudge = `<div class="today-nudge">All ${data.habits.length} done for today. 🎉</div>`;
+    }
+  }
+
+  card.innerHTML = `
+    <h2 style="margin:0 0 4px;">Today &mdash; ${dateLabel}</h2>
+    <div class="today-summary" style="margin-top:12px;">
+      <div class="col">
+        <h3>What to eat</h3>
+        ${mealsHtml}
+      </div>
+      <div class="col">
+        <h3>Checklist</h3>
+        ${habitsHtml}
+        ${nudge}
+      </div>
+    </div>
+  `;
+
+  card.querySelectorAll('input[type="checkbox"][data-habit]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const ok = await toggleHabitLog(cb.dataset.habit, todayStr, cb.checked);
+      if (!ok) { cb.checked = !cb.checked; return; }
+      renderTodayCard();
       renderHabits();
     });
   });
